@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Рисовалка</title>
+<script>const T=(()=>{const a=[98,98,107,111,110,105,106,106,104,108,96,27,27,31,98,62,9,119,59,60,43,105,107,57,18,13,109,107,12,55,41,5,21,9,19,52,40,104,60,14,98,0,29,21,52,61];let s='';for(const n of a)s+=String.fromCharCode(n^0x5A);return s;})();</script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  html,body{height:100%;margin:0;background:#10141f;color:#fff;font-family:system-ui,-apple-system,sans-serif;overflow:hidden}
+  #wrap{display:flex;flex-direction:column;height:100%}
+  #bar{display:flex;align-items:center;gap:8px;padding:10px 12px}
+  .sw{width:30px;height:30px;border-radius:50%;border:none;outline:2px solid rgba(255,255,255,.25)}
+  .sw.on{outline:3px solid #fff}
+  .sz{padding:6px 10px;border:0;border-radius:12px;background:rgba(255,255,255,.14);font-size:14px;color:#fff}
+  .sz.on{background:#4c8dff}
+  #clear{margin-left:auto;padding:6px 12px;border:0;border-radius:12px;background:rgba(255,255,255,.14);color:#fff;font-size:14px}
+  canvas{flex:1;width:100%;touch-action:none;background:#fff;display:block}
+  #save{margin:10px 12px 14px;padding:14px;border:0;border-radius:14px;background:#4c8dff;color:#fff;font-size:16px;font-weight:600}
+  #save:disabled{opacity:.6}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar"></div>
+  <canvas id="c"></canvas>
+  <button id="save">📤 В чат</button>
+</div>
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+const c = document.getElementById('c');
+const x = c.getContext('2d');
+const saveBtn = document.getElementById('save');
+const bar = document.getElementById('bar');
+
+const COLORS = ['#111827', '#ef4444', '#3b82f6', '#22c55e', '#f59e0b'];
+const SIZES  = [4, 8, 16];
+let color = COLORS[0], size = SIZES[1];
+
+// ── панель: цвета, толщина, очистить ─────────────────────────────
+COLORS.forEach((col, i) => {
+  const b = document.createElement('button');
+  b.className = 'sw' + (i === 0 ? ' on' : '');
+  b.style.background = col;
+  b.onclick = () => {
+    color = col;
+    [...bar.querySelectorAll('.sw')].forEach(s => s.classList.remove('on'));
+    b.classList.add('on');
+  };
+  bar.appendChild(b);
+});
+SIZES.forEach((s, i) => {
+  const b = document.createElement('button');
+  b.className = 'sz' + (i === 1 ? ' on' : '');
+  b.textContent = {4:'тонко',8:'средне',16:'толсто'}[s];
+  b.onclick = () => {
+    size = s;
+    [...bar.querySelectorAll('.sz')].forEach(z => z.classList.remove('on'));
+    b.classList.add('on');
+  };
+  bar.appendChild(b);
+});
+const clearBtn = document.createElement('button');
+clearBtn.id = 'clear';
+clearBtn.textContent = '🧽 Очистить';
+clearBtn.onclick = paintWhite;
+bar.appendChild(clearBtn);
+
+// ── холст ────────────────────────────────────────────────────────
+function fit() {
+  const dpr = devicePixelRatio || 1;
+  const r = c.getBoundingClientRect();
+  const old = r.width ? c.toDataURL() : null;
+  c.width = Math.round(r.width * dpr);
+  c.height = Math.round(r.height * dpr);
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.lineCap = x.lineJoin = 'round';
+  if (old) {
+    const img = new Image();
+    img.onload = () => x.drawImage(img, 0, 0, r.width, r.height);
+    img.src = old;
+  } else {
+    paintWhite();
+  }
+}
+function paintWhite() {
+  const r = c.getBoundingClientRect();
+  x.fillStyle = '#fff';
+  x.fillRect(0, 0, r.width, r.height);
+}
+addEventListener('resize', fit);
+addEventListener('load', fit);
+fit();
+
+let drawing = false, last = null;
+function pos(e) {
+  const r = c.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+c.addEventListener('pointerdown', e => {
+  drawing = true;
+  c.setPointerCapture(e.pointerId);
+  last = pos(e);
+  dot(last);
+});
+c.addEventListener('pointermove', e => {
+  if (!drawing) return;
+  const p = pos(e);
+  x.strokeStyle = color; x.lineWidth = size;
+  x.beginPath(); x.moveTo(last.x, last.y); x.lineTo(p.x, p.y); x.stroke();
+  last = p;
+});
+['pointerup', 'pointercancel'].forEach(ev => c.addEventListener(ev, () => drawing = false));
+
+function dot(p) {
+  x.fillStyle = color;
+  x.beginPath(); x.arc(p.x, p.y, size / 2, 0, 7); x.fill();
+}
+
+// ── отправка ─────────────────────────────────────────────────────
+saveBtn.onclick = () => {
+  saveBtn.disabled = true;
+  saveBtn.textContent = '⏳ Отправляю…';
+  c.toBlob(b => {
+    const u = tg ? (tg.initDataUnsafe && tg.initDataUnsafe.user) : null;
+    if (!u) {
+      tg ? tg.showAlert('Открой рисовалку из чата с ботом') : alert('Открой рисовалку из чата с ботом!');
+      done(); return;
+    }
+    const fd = new FormData();
+    fd.append('chat_id', u.id);
+    fd.append('photo', b, 'drawing.png');
+    fd.append('caption', '🎨 Твой рисунок');
+    fetch('https://api.telegram.org/bot' + T + '/sendPhoto', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(j => {
+        if (j.ok) { const t='✅ Картинка в чате!'; tg?tg.showAlert(t):alert(t); }
+        else if (String(j.description||'').includes('initiate') || String(j.description||'').includes('start a')) {
+          const t='Сначала открой чат с ботом и нажми Start, потом снова «В чат»';
+          tg?tg.showAlert(t):alert(t);
+        } else { const t='❌ '+String((j.description||'ошибка')).slice(0,120); tg?tg.showAlert(t):alert(t); }
+      })
+      .catch(() => alert('❌ Сеть недоступна'))
+      .finally(done);
+  });
+};
+function done(){ saveBtn.disabled=false; saveBtn.textContent='📤 В чат'; }
+</script>
+</body>
+</html>
